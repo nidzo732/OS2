@@ -3,21 +3,34 @@
 #include "page_tables.h"
 #include<mutex>
 #include "vm_declarations.h"
+#include "KernelSystem.h"
 using namespace std;
 
-int main()
+#ifdef _DEBUG
+int assertions()
 {
 	assert(sizeof(PageDescriptor) == DESCRIPTOR_SIZE);
 	assert(sizeof(PageTable) == PAGE_SIZE);
 	assert(sizeof(PageDirectory) == PAGE_SIZE);
 	assert(sizeof(FreePage) == PAGE_SIZE);
 	assert(NO_OF_PAGES == DIRECTORY_SIZE*TABLE_SIZE);
-	PageDescriptor d;
-	d.read = 0;
-	d.write = 0;
-	d.execute = 0;
-	cout << (int)(d.read) << (int)(d.write) << (int)(d.execute) << '\n';
-	d.execute=1;
-	cout << (int)(d.read) << (int)(d.write) << (int)(d.execute) << '\n';
-	cout << "ALL OK\n";
+	char* memory = new char[10 * (1 << OFFSET_BITS)];
+	PhysicalMemory mem(memory, 10);
+	for (int i = 0; i < 10 * OFFSET_BITS; i += (1 << OFFSET_BITS))
+	{
+		Frame f = mem.getFrame(&(memory[i]));
+		char *ptr = (char*)mem.getPointer(f);
+		assert(ptr == &(memory[i]));
+	}
+	assert(mem.getPointer(mem.getFrame(nullptr)) == nullptr);
+	cout << "\nASSERTIONS OK\n";
+	delete[] memory;
+	return 0;
+}
+int z = assertions();
+#endif // DEBUG
+
+int main()
+{
+	cout << "\n\nALL OK\n\n";
 }
