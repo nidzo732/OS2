@@ -139,16 +139,26 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClCompile Include="KernelProcess.cpp" />
     <ClCompile Include="KernelSystem.cpp" />
     <ClCompile Include="main.cpp" />
     <ClCompile Include="part.cpp" />
     <ClCompile Include="PhysicalMemory.cpp" />
+    <ClCompile Include="Process.cpp" />
+    <ClCompile Include="Segment.cpp" />
+    <ClCompile Include="Swap.cpp" />
+    <ClCompile Include="System.cpp" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="KernelProcess.h" />
     <ClInclude Include="KernelSystem.h" />
     <ClInclude Include="page_tables.h" />
     <ClInclude Include="part.h" />
     <ClInclude Include="PhysicalMemory.h" />
+    <ClInclude Include="Process.h" />
+    <ClInclude Include="Segment.h" />
+    <ClInclude Include="Swap.h" />
+    <ClInclude Include="System.h" />
     <ClInclude Include="vm_declarations.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />

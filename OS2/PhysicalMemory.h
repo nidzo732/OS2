@@ -1,8 +1,7 @@
 #pragma once
 #include "page_tables.h"
 #include "vm_declarations.h"
-#define PAGEMAP_CHUNK 100
-#define NULL_FRAME 0xffffffff
+
 class PhysicalMemory
 {
 public:

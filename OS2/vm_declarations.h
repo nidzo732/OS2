@@ -17,3 +17,11 @@ typedef unsigned long Frame;
 #define OFFSET_BITS 10
 #define NO_OF_PAGES (1<<PAGE_BITS)
 #define DESCRIPTOR_SIZE 16
+#define PAGEMAP_CHUNK 100
+#define NULL_FRAME 0xffffffff
+#define PAGE_TABLE_BITS 6
+#define TABLE_BITS 8
+
+#define OFFSET_MASK ((1<<OFFSET_BITS)-1)
+#define PAGE_MASK (((1<<PAGE_TABLE_BITS)-1)<<OFFSET_BITS)
+#define TABLE_MASK (((1<<TABLE_BITS)-1)<<(OFFSET_BITS+PAGE_TABLE_BITS))

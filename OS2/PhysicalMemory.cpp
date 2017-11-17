@@ -24,7 +24,7 @@ FreePage * PhysicalMemory::fetchFreePage(bool recurse)
 	else if (recurse)
 	{
 		mapMorePages();
-		fetchFreePage(false);
+		page = fetchFreePage(false);
 	}
 	return page;
 }
