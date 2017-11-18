@@ -1,9 +1,11 @@
 #include "KernelProcess.h"
 #include "KernelSystem.h"
 #include "Segment.h"
+#include<iostream>
 KernelProcess::KernelProcess(ProcessId pid, KernelSystem * system)
 	:pid(pid), system(system), directory(nullptr)
 {
+	clockHand = loadedPages.begin();
 }
 
 KernelProcess::~KernelProcess()
@@ -16,10 +18,16 @@ ProcessId KernelProcess::getProcessId() const
 }
 Status KernelProcess::allocSegment(VirtualAddress startAddress, PageNum segmentSize, AccessRight flags)
 {
-	if (startAddress & ((1 << OFFSET_BITS) - 1)) return TRAP;
+	if (startAddress & ((1 << OFFSET_BITS) - 1))
+	{
+		return TRAP;
+	}
 	for (auto seg : segments)
 	{
-		if (seg.get()->overlap(startAddress, segmentSize)) return TRAP;
+		if (seg.get()->overlap(startAddress, segmentSize))
+		{
+			return TRAP;
+		}
 	}
 	VirtualAddress startPage = startAddress >> OFFSET_BITS;
 	for (unsigned long i = startPage; i < startPage + segmentSize; i++)
@@ -40,7 +48,7 @@ Status KernelProcess::allocSegment(VirtualAddress startAddress, PageNum segmentS
 
 Status KernelProcess::createSegment(VirtualAddress startAddress, PageNum segmentSize, AccessRight flags)
 {
-	std::lock_guard<std::mutex> _guard(system->getMutex());
+	
 	return allocSegment(startAddress, segmentSize, flags);
 }
 void KernelProcess::logResult(Status status, AccessType type)
@@ -54,17 +62,15 @@ void KernelProcess::logResult(Status status, AccessType type)
 Status KernelProcess::access(VirtualAddress address, AccessType type)
 {
 	accessCount++;
-	auto offset = address&OFFSET_MASK;
-	auto page = (address&PAGE_MASK) >> OFFSET_BITS;
-	auto table = (address&TABLE_MASK) >> (OFFSET_BITS + PAGE_TABLE_BITS);
 	if (this->directory == nullptr) return PAGE_FAULT;
-	PageTable *pTable = (PageTable*)system->pmtMemory.getPointer(this->directory->tables[table]);
+	PageTable *pTable = (PageTable*)system->pmtMemory.getPointer((*this->directory)[address]);
 	if (pTable == nullptr) return PAGE_FAULT;
-	PageDescriptor& descriptor = pTable->descriptors[page];
+	PageDescriptor& descriptor = (*pTable)[address];
 	if (!(descriptor.used)) return PAGE_FAULT;
 	if (descriptor.loaded)
 	{
 		if (!descriptor.validAccess(type)) return PAGE_FAULT;
+		descriptor.reference = 1;
 		return OK;
 	}
 	else return PAGE_FAULT;
@@ -72,15 +78,17 @@ Status KernelProcess::access(VirtualAddress address, AccessType type)
 
 Status KernelProcess::loadSegment(VirtualAddress startAddress, PageNum segmentSize, AccessRight flags, void * content)
 {
-	std::lock_guard<std::mutex> _guard(system->getMutex());
+	
 	auto status = allocSegment(startAddress, segmentSize, flags);
 	if (status != OK) return status;
 	for (PageNum i = 0; i < segmentSize; i++)
 	{
+		accessCount++;
 		void *ptr = resolveAddress(startAddress + i*PAGE_SIZE);
 		if (ptr == 0)
 		{
 			handlePageFault(startAddress + i*PAGE_SIZE);
+			accessCount++;
 			ptr = resolveAddress(startAddress + i*PAGE_SIZE);
 			if (ptr == 0) return TRAP;
 		}
@@ -91,18 +99,30 @@ Status KernelProcess::loadSegment(VirtualAddress startAddress, PageNum segmentSi
 
 Status KernelProcess::deleteSegment(VirtualAddress startAddress)
 {
-	std::lock_guard<std::mutex> _guard(system->getMutex());
-	return Status();
+	for (auto seg : segments)
+	{
+		if (seg.get()->start == startAddress)
+		{
+			if (seg.get()->globalSegment != nullptr) return TRAP;
+			VirtualAddress startPage = startAddress >> OFFSET_BITS;
+			for (unsigned long i = startPage; i < startPage + seg.get()->size; i++)
+			{
+				deallocPage(i);
+			}
+			auto iter = loadedPages.begin();
+			segments.remove(seg);
+			return OK;
+		}
+	}
+	return TRAP;
 }
 
 Status KernelProcess::handlePageFault(VirtualAddress address)
 {
-	auto offset = address&OFFSET_MASK;
-	auto page = (address&PAGE_MASK) >> OFFSET_BITS;
-	auto table = (address&TABLE_MASK) >> (OFFSET_BITS + PAGE_TABLE_BITS);
-	PageTable *pTable = (PageTable*)system->pmtMemory.getPointer(this->directory->tables[table]);
+	if (this->directory == nullptr) return TRAP;
+	PageTable *pTable = (PageTable*)system->pmtMemory.getPointer((*this->directory)[address]);
 	if (pTable == nullptr) return TRAP;
-	PageDescriptor& descriptor = pTable->descriptors[page];
+	PageDescriptor& descriptor = (*pTable)[address];
 	if (!(descriptor.used)) return TRAP;
 	if (!descriptor.validAccess(faultAccess)) return TRAP;
 	loadPage(descriptor);
@@ -111,30 +131,36 @@ Status KernelProcess::handlePageFault(VirtualAddress address)
 }
 Status KernelProcess::pageFault(VirtualAddress address)
 {
-	std::lock_guard<std::mutex> _guard(system->getMutex());
+	
 	return handlePageFault(address);
 }
 PhysicalAddress KernelProcess::resolveAddress(VirtualAddress address)
 {
 	if (directory == nullptr) return 0;
-	auto offset = address&OFFSET_MASK;
-	auto page = (address&PAGE_MASK) >> OFFSET_BITS;
-	auto table = (address&TABLE_MASK) >> (OFFSET_BITS + PAGE_TABLE_BITS);
-	PageTable *pTable = (PageTable*)system->pmtMemory.getPointer(this->directory->tables[table]);
+	PageTable *pTable = (PageTable*)system->pmtMemory.getPointer((*this->directory)[address]);
 	if (pTable == nullptr) return 0;
-	PageDescriptor& descriptor = pTable->descriptors[page];
+	PageDescriptor& descriptor = (*pTable)[address];
 	if (!(descriptor.loaded)) return 0;
-	return (char*)system->processMemory.getPointer(descriptor.frame) + offset;
+	return (char*)(system->processMemory.getPointer(descriptor.frame)) + (address&OFFSET_MASK);
 }
 PhysicalAddress KernelProcess::getPhysicalAddress(VirtualAddress address)
 {
-	std::lock_guard<std::mutex> _guard(system->getMutex());
+	
 	return resolveAddress(address);
 }
 
 float KernelProcess::faultFrequency()
 {
+	if (accessCount == 0) return 0;
 	return ((float)faultCount) / accessCount;
+}
+
+float KernelProcess::evictionRating()
+{
+	float rating1 = (1 - faultFrequency());
+	float rating2 = ((float)loadedPages.size()) / system->processMemory.size();
+	float rating3 = ((float)loadedPages.size()) / wsetSize;
+	return rating1*rating2*rating3;
 }
 
 int KernelProcess::allocPage(PageNum page, AccessRight flags)
@@ -166,29 +192,65 @@ void KernelProcess::deallocPage(PageNum page)
 	page = page&((1 << PAGE_TABLE_BITS) - 1);
 	if(!pTable->descriptors[page].used) throw std::exception();
 	pTable->descriptors[page].used = 0;
-	if (pTable->empty()) system->freeTable(pTable);
-	directory->tables[table] = system->pmtMemory.getFrame(nullptr);
-}
-
-void KernelProcess::advanceClock()
-{
+	if (pTable->descriptors[page].swapped)
+	{
+		system->swap.release(pTable->descriptors[page].frame);
+	}
+	if (pTable->descriptors[page].loaded)
+	{
+		system->freePage((FreePage*)system->processMemory.getPointer(pTable->descriptors[page].frame));
+		if (clockHand != loadedPages.end())
+		{
+			if ((&(pTable->descriptors[page])) == (*clockHand))
+			{
+				clockHand = loadedPages.end();
+			}
+		}
+		loadedPages.remove(&(pTable->descriptors[page]));
+	}
+	if (pTable->empty())
+	{
+		system->freeTable(pTable);
+		directory->tables[table] = system->pmtMemory.getFrame(nullptr);
+	}
 }
 
 void KernelProcess::sacrificePage()
 {
+	if (loadedPages.size() == 0) return;
+	if (clockHand == loadedPages.end()) clockHand = loadedPages.begin();
+	while ((*clockHand)->reference)
+	{
+		(*clockHand)->reference = 0;
+		clockHand++;
+		if (clockHand == loadedPages.end()) clockHand = loadedPages.begin();
+	}
+	std::list<PageDescriptor*>::iterator target = clockHand;
+	clockHand++;
+	evict(target);
 }
 
-void KernelProcess::evict(PageDescriptor & decriptor)
+void KernelProcess::evict(std::list<PageDescriptor*>::iterator page)
 {
+	if (!system->swap.clustersAvailable()) return;
+	PageDescriptor &descriptor = *(*(page));
+	FreePage *targetPage = (FreePage*)system->processMemory.getPointer(descriptor.frame);
+	ClusterNo swapBlock = system->swap.get();
+	system->swap.write(swapBlock, targetPage);
+	descriptor.frame = swapBlock;
+	descriptor.loaded = 0;
+	descriptor.swapped = 1;
+	system->processMemory.reclaimPage(targetPage);
+	loadedPages.erase(page);
 }
 
 void KernelProcess::loadPage(PageDescriptor& descriptor)
 {
-	if (this->pagesUsed == this->wsetSize)
+	if (this->loadedPages.size() == this->wsetSize)
 	{
 		sacrificePage();
 	}
-	FreePage *page = system->processMemory.fetchFreePage();
+	FreePage *page = system->getFreePage();
 	if (page == nullptr) return;
 	descriptor.loaded = 1;
 	if (descriptor.swapped)
@@ -200,5 +262,5 @@ void KernelProcess::loadPage(PageDescriptor& descriptor)
 	}
 	descriptor.frame = system->processMemory.getFrame(page);
 	descriptor.loaded = 1;
-	pagesUsed++;
+	loadedPages.push_back(&descriptor);
 }

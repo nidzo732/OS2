@@ -2,6 +2,10 @@
 #include<cassert>
 #include "page_tables.h"
 #include<mutex>
+#include<list>
+#include<cstdlib>
+#include<ctime>
+#include<thread>
 #include "vm_declarations.h"
 #include "KernelSystem.h"
 #include "Swap.h"
@@ -12,6 +16,7 @@ using namespace std;
 #ifdef _DEBUG
 int assertions()
 {
+	srand(time(NULL));
 	cout << sizeof(PageDescriptor);
 	assert(sizeof(PageDescriptor) == DESCRIPTOR_SIZE);
 	assert(sizeof(PageTable) == PAGE_SIZE);
@@ -27,7 +32,6 @@ int assertions()
 		assert(ptr == &(memory[i]));
 	}
 	assert(mem.getPointer(mem.getFrame(nullptr)) == nullptr);
-
 	Partition *p = new Partition("perica");
 	Swap *s = new Swap(p);
 	ClusterNo blk1 = s->get();
@@ -60,31 +64,105 @@ int assertions()
 }
 int z = assertions();
 #endif // DEBUG
+std::mutex mtx;
 
+#define RQD(r,t) if((r)==(t)){std::cout<<(r)<<' '<<(t)<<' '<<__LINE__<<'\n';exit(1);}
+#define RQE(r,t) assert((r)==(t));if((r)!=(t)){std::cout<<(r)<<' '<<(t)<<' '<<__LINE__<<'\n';exit(1);}
+
+void allocat(Process *proc, char* initial, System *sys)
+{
+	auto result = proc->loadSegment(511 * 1024, 100, READ_WRITE, initial);
+	RQE(result, OK);
+}
+void deallocat(Process *proc, char* initial, System *sys)
+{
+	auto result = proc->deleteSegment(511 * 1024);
+	RQE(result, OK);
+}
+int fc = 0;
+void runProcess(Process *proc, char* initial, System *sys)
+{
+	for (int i = 0; i < 10000; i++)
+	{
+		mtx.lock();
+		VirtualAddress addr = 511 * 1024 + (rand() % 100)*1024;
+		auto result = sys->access(proc->getProcessId(), addr, READ);
+		RQD(result, TRAP)
+		if (result == PAGE_FAULT)
+		{
+			result = proc->pageFault(addr);
+			fc++;
+			RQE(result, OK);
+		}
+		result = sys->access(proc->getProcessId(), addr, READ);
+		if (result != OK) std::cout << i << '\n';
+		RQE(result, OK);
+		void *stored = proc->getPhysicalAddress(addr);
+		RQD(stored, (void*)nullptr);
+		char *storedc = (char*)stored;
+		RQE(*storedc, initial[addr - 511 * 1024]);
+		//cout << storedc << '\n';
+		//system("cls");
+		mtx.unlock();
+	}
+	cout << "\n\nALL OK\n\n";
+}
 int main()
 {
-	char* pmtSpace = new char[51200];
-	char* vmSpace = new char[1024 * 1024];
-	char *initial = new char[10240];
-	for (int i = 0; i < 10239; i++)
+	char* pmtSpace = new char[1024*10000];
+	char* vmSpace = new char[1024 * 10000];
+	char *initial = new char[102400];
+	char txt[] = "Vucicu, pederu!";
+	int l = strlen(txt) + 1;
+	for (int i = 0; i < 102400; i++)
 	{
-		initial[i] = i%131;
+		initial[i] = rand() % 128;
 	}
 	initial[10239] = '\0';
-	auto sys=new System(vmSpace, 1024, pmtSpace, 50, new Partition("pera"));
-	auto proc = sys->createProcess();
-	auto proc2 = sys->createProcess();
-	auto result = proc->createSegment(0, 10, READ_WRITE);
-	auto result2 = proc->loadSegment(511*1024, 10, READ_WRITE, initial);
-	for (int i = 0; i < 10240;i++)
+	int c = 80;
+	auto sys=new System(vmSpace, 37, pmtSpace, 10000, new Partition("pera"));
+	std::list<std::thread*> threads;
+	std::list<Process*> processes;
+	for (int i = 0; i < c; i++)
 	{
-		void *stored = proc->getPhysicalAddress(511 * 1024 + i);
-		assert(stored != nullptr);
-		char *storedc = (char*)stored;
-		assert(*storedc == initial[i]);
+		auto p = sys->createProcess();
+		processes.push_back(p);
 	}
-	cout << "\n\nMAPPING OK\n\n";
-	auto result3 = proc->createSegment(511 * 1024, 1, READ_WRITE);
+	for (int z = 0; z < 100; z++)
+	{
+		for (auto p : processes)
+		{
+			auto t = new std::thread(allocat, p, initial, sys);
+			threads.push_back(t);
+		}
+		for (auto t : threads)
+		{
+			t->join();
+		}
+		threads.clear();
+		for (auto p : processes)
+		{
+			auto t = new std::thread(runProcess, p, initial, sys);
+			threads.push_back(t);
+		}
+		for (auto t : threads)
+		{
+			t->join();
+		}
+		threads.clear();
+		for (auto p : processes)
+		{
+			auto t = new std::thread(deallocat, p, initial, sys);
+			threads.push_back(t);
+		}
+		for (auto t : threads)
+		{
+			t->join();
+		}
+		threads.clear();
+	}
+	cout << fc<<"\n\nMAPPING OK\n\n";
+	/*auto result3 = proc->createSegment(511 * 1024, 1, READ_WRITE);
 	proc->getPhysicalAddress(511 * 1024 + 13);
 	proc->pageFault(511 * 1024 + 13);
 	proc->pageFault(13);
@@ -102,5 +180,5 @@ int main()
 	proc->getPhysicalAddress(1027);
 	proc->getPhysicalAddress(3075);
 	proc->getPhysicalAddress(4100);
-	cout << proc->getPhysicalAddress(513 * 1024 + 2) << ' ' << "\n" << proc2->getPhysicalAddress(513 * 1024 + 2);
+	cout << proc->getPhysicalAddress(513 * 1024 + 2) << ' ' << "\n" << proc2->getPhysicalAddress(513 * 1024 + 2);*/
 }

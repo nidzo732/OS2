@@ -27,25 +27,25 @@ public:
 	PhysicalAddress resolveAddress(VirtualAddress address);
 	PhysicalAddress getPhysicalAddress(VirtualAddress address);
 	float faultFrequency();
+	float evictionRating();
 	friend class KernelSystem;
+	friend class Process;
 	int allocPage(PageNum page, AccessRight flags);
 	void deallocPage(PageNum page);
-	void advanceClock();
 	void sacrificePage();
-	void evict(PageDescriptor& decriptor);
+	void evict(std::list<PageDescriptor*>::iterator page);
 	void loadPage(PageDescriptor& descriptor);
 private:
 	KernelSystem *system;
 	ProcessId pid;
 	PageDirectory *directory;
-	PageDescriptor *hand=nullptr;
-	PageDescriptor *prev=nullptr;
 	std::list<std::shared_ptr<Segment>> segments;
+	std::list<PageDescriptor*> loadedPages;
+	std::list<PageDescriptor*>::iterator clockHand;
 
 	AccessType faultAccess;
 
-	unsigned long wsetSize = 2;
-	unsigned long pagesUsed = 0;
+	unsigned long wsetSize = 1000000;
 
 	unsigned long accessCount = 0;
 	unsigned long faultCount = 0;

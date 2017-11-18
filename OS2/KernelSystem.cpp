@@ -11,13 +11,13 @@ KernelSystem::KernelSystem(PhysicalAddress processVMSpace, PageNum processVMSpac
 
 Time KernelSystem::periodicJob()
 {
-	std::lock_guard<std::mutex> _guard(guard);
+	
 	return Time();
 }
 
 Status KernelSystem::access(ProcessId pid, VirtualAddress address, AccessType type)
 {
-	std::lock_guard<std::mutex> _guard(guard);
+	
 	if (!processes.count(pid)) return TRAP;
 	KernelProcess *proc = processes[pid];
 	auto status= proc->access(address, type);
@@ -93,6 +93,17 @@ void KernelSystem::freePage(FreePage * page, bool onPmtMemory)
 void KernelSystem::attemptSwapping()
 {
 	if (!swap.clustersAvailable()) return;
+	float maxEr = -1;
+	KernelProcess* targetProcess;
+	for (auto process : processes)
+	{
+		if (process.second->evictionRating() > maxEr)
+		{
+			maxEr = process.second->evictionRating();
+			targetProcess = process.second;
+		}
+	}
+	if (targetProcess != nullptr) targetProcess->sacrificePage();
 }
 
 
@@ -102,7 +113,7 @@ KernelSystem::~KernelSystem()
 
 Process * KernelSystem::createProcess()
 {
-	std::lock_guard<std::mutex> _guard(guard);
+	
 	auto pid = nextId++;
 	Process *process = new Process(pid);
 	KernelProcess *kProcess = new KernelProcess(pid, this);

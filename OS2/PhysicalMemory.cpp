@@ -18,7 +18,6 @@ FreePage * PhysicalMemory::fetchFreePage(bool recurse)
 	{
 		page = freePagesHead;
 		freePagesHead = (FreePage*)getPointer(freePagesHead->next);
-		if (freePagesHead == nullptr) freePagesTail = nullptr;
 		used++;
 	}
 	else if (recurse)
@@ -36,16 +35,8 @@ void PhysicalMemory::reclaimPage(FreePage * page)
 void PhysicalMemory::claimPage(FreePage * page)
 {
 	if (getFrame(page) >= capacity) throw std::exception("PhysicalMemory::claimPage got someone else's page");
-	if (freePagesHead == nullptr)
-	{
-		freePagesHead = freePagesTail = page;
-	}
-	else
-	{
-		freePagesTail->next = getFrame(page);
-		freePagesTail = page;
-	}
-	freePagesTail->next = getFrame(nullptr);
+	page->next = getFrame(freePagesHead);
+	freePagesHead = page;
 }
 
 void * PhysicalMemory::getPointer(Frame frame)
@@ -80,4 +71,9 @@ Frame PhysicalMemory::getFrame(void * ptr)
 	auto frame= diff >> OFFSET_BITS;
 	if (frame >= capacity) throw std::exception("PhysicalMemory::getFrame got someone else's page");
 	return frame;
+}
+
+PageNum PhysicalMemory::size()
+{
+	return capacity;
 }

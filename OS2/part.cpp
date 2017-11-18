@@ -1,7 +1,7 @@
 #include "part.h"
 #include<cstring>
 #include<exception>
-#define PART_SIZE 1000
+#define PART_SIZE 10000
 
 class PartitionImpl
 {

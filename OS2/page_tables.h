@@ -11,6 +11,7 @@ struct PageDescriptor
 	unsigned char loaded : 1;
 	unsigned char used : 1;
 	unsigned char swapped : 1;
+	unsigned char cow : 1;
 	bool validAccess(AccessType type)
 	{
 		switch (type)
@@ -35,10 +36,18 @@ struct PageTable
 		for (int i = 0; i < TABLE_SIZE; i++) if (descriptors[i].used) return false;
 		return true;
 	}
+	PageDescriptor& operator[](VirtualAddress addr)
+	{
+		return descriptors[(addr&PAGE_MASK) >> OFFSET_BITS];
+	}
 };
 struct PageDirectory
 {
 	Frame tables[DIRECTORY_SIZE];
+	Frame& operator[](VirtualAddress addr)
+	{
+		return tables[(addr&TABLE_MASK) >> (OFFSET_BITS + PAGE_TABLE_BITS)];
+	}
 };
 struct FreePage
 {

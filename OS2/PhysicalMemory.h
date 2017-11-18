@@ -12,6 +12,7 @@ public:
 	void claimPage(FreePage *page);
 	bool pagesAvailable();
 	Frame getFrame(void *ptr);
+	PageNum size();
 	void * getPointer(Frame frame);
 private:
 	void mapMorePages();
@@ -21,6 +22,5 @@ private:
 	PageNum mapped=0;
 	PageNum used = 0;
 	FreePage *freePagesHead = nullptr;
-	FreePage *freePagesTail = nullptr;
 };
 
