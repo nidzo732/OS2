@@ -18,17 +18,11 @@ Time KernelSystem::periodicJob()
 Status KernelSystem::access(ProcessId pid, VirtualAddress address, AccessType type)
 {
 	std::lock_guard<std::mutex> _guard(guard);
-	KernelProcess *proc = processes;
-	while (proc != nullptr)
-	{
-		if (proc->pid == pid)
-		{
-			auto status= proc->access(address, type);
-			proc->logResult(status, type);
-		}
-		proc = proc->next;
-	}
-	return TRAP;
+	if (!processes.count(pid)) return TRAP;
+	KernelProcess *proc = processes[pid];
+	auto status= proc->access(address, type);
+	proc->logResult(status, type);
+	return status;
 }
 
 FreePage * KernelSystem::getFreePage(bool onPagingTable, bool recurse)
@@ -112,9 +106,8 @@ Process * KernelSystem::createProcess()
 	auto pid = nextId++;
 	Process *process = new Process(pid);
 	KernelProcess *kProcess = new KernelProcess(pid, this);
-	kProcess->next = processes;
+	processes[pid]=kProcess;
 	process->pProcess = kProcess;
-	processes = kProcess;
 	return process;
 }
 

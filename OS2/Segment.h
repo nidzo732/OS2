@@ -6,6 +6,8 @@ class Segment
 {
 public:
 	Segment(VirtualAddress start, PageNum size, char *name = nullptr);
+	Segment(const Segment &s) = delete;
+	Segment(Segment &&s) = delete;
 	bool overlap(VirtualAddress start, PageNum size);
 	~Segment();
 	friend class KernelSystem;

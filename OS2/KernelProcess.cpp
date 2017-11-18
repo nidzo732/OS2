@@ -17,11 +17,9 @@ ProcessId KernelProcess::getProcessId() const
 Status KernelProcess::allocSegment(VirtualAddress startAddress, PageNum segmentSize, AccessRight flags)
 {
 	if (startAddress & ((1 << OFFSET_BITS) - 1)) return TRAP;
-	Segment *existing = segments;
-	while (existing)
+	for (auto seg : segments)
 	{
-		if (existing->overlap(startAddress, segmentSize)) return TRAP;
-		existing = existing->next;
+		if (seg.get()->overlap(startAddress, segmentSize)) return TRAP;
 	}
 	VirtualAddress startPage = startAddress >> OFFSET_BITS;
 	for (unsigned long i = startPage; i < startPage + segmentSize; i++)
@@ -36,8 +34,7 @@ Status KernelProcess::allocSegment(VirtualAddress startAddress, PageNum segmentS
 		}
 	}
 	Segment *newSegment = new Segment(startAddress, segmentSize);
-	newSegment->next = segments;
-	segments = newSegment;
+	segments.push_back(std::shared_ptr<Segment>(newSegment));
 	return OK;
 }
 
@@ -51,10 +48,12 @@ void KernelProcess::logResult(Status status, AccessType type)
 	if (status == PAGE_FAULT)
 	{
 		this->faultAccess = type;
+		faultCount++;
 	}
 }
 Status KernelProcess::access(VirtualAddress address, AccessType type)
 {
+	accessCount++;
 	auto offset = address&OFFSET_MASK;
 	auto page = (address&PAGE_MASK) >> OFFSET_BITS;
 	auto table = (address&TABLE_MASK) >> (OFFSET_BITS + PAGE_TABLE_BITS);
@@ -133,6 +132,11 @@ PhysicalAddress KernelProcess::getPhysicalAddress(VirtualAddress address)
 	return resolveAddress(address);
 }
 
+float KernelProcess::faultFrequency()
+{
+	return ((float)faultCount) / accessCount;
+}
+
 int KernelProcess::allocPage(PageNum page, AccessRight flags)
 {
 	if (directory == nullptr) directory = system->fetchDirectory();
@@ -171,6 +175,10 @@ void KernelProcess::advanceClock()
 }
 
 void KernelProcess::sacrificePage()
+{
+}
+
+void KernelProcess::evict(PageDescriptor & decriptor)
 {
 }
 

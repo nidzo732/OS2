@@ -1,5 +1,7 @@
 #pragma once
 #include<mutex>
+#include<list>
+#include<map>
 #include "vm_declarations.h"
 #include "page_tables.h"
 #include "part.h"
@@ -32,6 +34,7 @@ private:
 	PhysicalMemory pmtMemory;
 	Swap swap;
 	ProcessId nextId = 0;
-	KernelProcess *processes = nullptr;;
+	std::map<ProcessId, KernelProcess*> processes;
+
 };
 
