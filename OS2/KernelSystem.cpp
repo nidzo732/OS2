@@ -11,8 +11,12 @@ KernelSystem::KernelSystem(PhysicalAddress processVMSpace, PageNum processVMSpac
 
 Time KernelSystem::periodicJob()
 {
-	
-	return Time();
+	for (auto process : processes)
+	{
+		process.second->updateWsetSize();
+		process.second->resetReferenceBits();
+	}
+	return 50000;
 }
 
 Status KernelSystem::access(ProcessId pid, VirtualAddress address, AccessType type)
@@ -58,7 +62,7 @@ PageTable * KernelSystem::fetchTable()
 	memset(pt, 0, sizeof(PageTable));
 	for (int i = 0; i < TABLE_SIZE; i++)
 	{
-		pt->descriptors[i].next=pmtMemory.getFrame(nullptr);
+		//pt->descriptors[i].next=pmtMemory.getFrame(nullptr);
 	}
 	return pt;
 }
@@ -125,6 +129,21 @@ Process * KernelSystem::createProcess()
 std::mutex & KernelSystem::getMutex()
 {
 	return guard;
+}
+
+void KernelSystem::pagesAllocated(PageNum count)
+{
+	pagesUsed += count;
+}
+
+void KernelSystem::pagesFreed(PageNum count)
+{
+	pagesUsed -= count;
+}
+
+bool KernelSystem::beganSwapping()
+{
+	return pagesUsed > SWAPPINES*processMemory.size();
 }
 
 

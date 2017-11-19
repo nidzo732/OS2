@@ -25,6 +25,7 @@ ClusterNo Partition::getNumOfClusters() const
 
 int Partition::readCluster(ClusterNo cluster, char * buffer)
 {
+	ax++;
 	if (cluster > PART_SIZE) throw std::exception("Accessing nonexistent cluster");
 	std::memcpy(buffer, myImpl->clusters[cluster], ClusterSize);
 	return 1;
@@ -32,6 +33,7 @@ int Partition::readCluster(ClusterNo cluster, char * buffer)
 
 int Partition::writeCluster(ClusterNo cluster, const char * buffer)
 {
+	ax++;
 	std::memcpy(myImpl->clusters[cluster], buffer, ClusterSize);
 	return 1;
 }

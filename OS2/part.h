@@ -10,6 +10,7 @@ public:
 	virtual int readCluster(ClusterNo, char *buffer);
 	virtual int writeCluster(ClusterNo, const char *buffer);
 	virtual ~Partition();
+	int ax = 0;
 private:
 	PartitionImpl *myImpl;
 };

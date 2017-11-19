@@ -6,6 +6,7 @@
 #include<cstdlib>
 #include<ctime>
 #include<thread>
+#include<chrono>
 #include "vm_declarations.h"
 #include "KernelSystem.h"
 #include "Swap.h"
@@ -69,7 +70,7 @@ std::mutex mtx;
 #define RQD(r,t) if((r)==(t)){std::cout<<(r)<<' '<<(t)<<' '<<__LINE__<<'\n';exit(1);}
 #define RQE(r,t) assert((r)==(t));if((r)!=(t)){std::cout<<(r)<<' '<<(t)<<' '<<__LINE__<<'\n';exit(1);}
 
-void allocat(Process *proc, char* initial, System *sys)
+/*void allocat(Process *proc, char* initial, System *sys)
 {
 	auto result = proc->loadSegment(511 * 1024, 100, READ_WRITE, initial);
 	RQE(result, OK);
@@ -106,79 +107,90 @@ void runProcess(Process *proc, char* initial, System *sys)
 		mtx.unlock();
 	}
 	cout << "\n\nALL OK\n\n";
+}*/
+unsigned long long fc = 0;
+void processBody(System *sys, Process *proc, char *initial, int workset)
+{
+	int *w = new int[workset];
+	for (int i = 0; i < 10000; i++)
+	{
+		for (int j = 0; j < workset; j++) w[j] = rand() % 100;
+		for (int j = 0; j<10000; j++)
+		{
+			mtx.lock();
+			VirtualAddress addr = w[rand() % workset] * 1024 + rand() % 1024;
+			auto result = sys->access(proc->getProcessId(), addr, READ);
+			RQD(result, TRAP);
+			if (result == PAGE_FAULT)
+			{
+				fc++;
+				result = proc->pageFault(addr);
+				RQE(result, OK);
+			}
+			result = sys->access(proc->getProcessId(), addr, READ);
+			if (result != OK) std::cout << i << '\n';
+			RQE(result, OK);
+			void *stored = proc->getPhysicalAddress(addr);
+			RQD(stored, (void*)nullptr);
+			char *storedc = (char*)stored;
+			RQE(*storedc, initial[addr]);
+			mtx.unlock();
+		}
+	}
+	std::cout << "\nPROCDONE "<<workset<<"\n";
+	delete[] w;
+}
+volatile bool running = true;
+int p = 0;
+void periodical(System *sys)
+{
+	while (running)
+	{
+		std::this_thread::sleep_for(std::chrono::microseconds(sys->periodicJob()));
+		p++;
+	}
 }
 int main()
 {
 	char* pmtSpace = new char[1024*10000];
-	char* vmSpace = new char[1024 * 10000];
+	char* vmSpace = new char[1024*10000];
+	auto part = new Partition("pera");
+	auto sys = new System(vmSpace, 100, pmtSpace, 10000, part);
+	auto pTask = std::thread(periodical, sys);
 	char *initial = new char[102400];
-	char txt[] = "Vucicu, pederu!";
-	int l = strlen(txt) + 1;
 	for (int i = 0; i < 102400; i++)
 	{
 		initial[i] = rand() % 128;
 	}
 	initial[10239] = '\0';
-	int c = 80;
-	auto sys=new System(vmSpace, 37, pmtSpace, 10000, new Partition("pera"));
-	std::list<std::thread*> threads;
-	std::list<Process*> processes;
-	for (int i = 0; i < c; i++)
-	{
-		auto p = sys->createProcess();
-		processes.push_back(p);
-	}
-	for (int z = 0; z < 100; z++)
-	{
-		for (auto p : processes)
-		{
-			auto t = new std::thread(allocat, p, initial, sys);
-			threads.push_back(t);
-		}
-		for (auto t : threads)
-		{
-			t->join();
-		}
-		threads.clear();
-		for (auto p : processes)
-		{
-			auto t = new std::thread(runProcess, p, initial, sys);
-			threads.push_back(t);
-		}
-		for (auto t : threads)
-		{
-			t->join();
-		}
-		threads.clear();
-		for (auto p : processes)
-		{
-			auto t = new std::thread(deallocat, p, initial, sys);
-			threads.push_back(t);
-		}
-		for (auto t : threads)
-		{
-			t->join();
-		}
-		threads.clear();
-	}
-	cout << fc<<"\n\nMAPPING OK\n\n";
-	/*auto result3 = proc->createSegment(511 * 1024, 1, READ_WRITE);
-	proc->getPhysicalAddress(511 * 1024 + 13);
-	proc->pageFault(511 * 1024 + 13);
-	proc->pageFault(13);
-	proc->pageFault(517);
-	proc2->createSegment(513 * 1024, 3, READ);
-	sys->access(proc2->getProcessId(), 513 * 1024 + 13, READ);
-	proc2->pageFault(513 * 1024 + 13);
-	sys->access(proc2->getProcessId(), 513 * 1024 + 13, EXECUTE);
-	proc2->getPhysicalAddress(513 * 1024 + 2);
-	proc->pageFault(1027);
-	proc->pageFault(3075);
-	proc->getPhysicalAddress(511 * 1024 + 13);
-	proc->getPhysicalAddress(13);
-	proc->getPhysicalAddress(517);
-	proc->getPhysicalAddress(1027);
-	proc->getPhysicalAddress(3075);
-	proc->getPhysicalAddress(4100);
-	cout << proc->getPhysicalAddress(513 * 1024 + 2) << ' ' << "\n" << proc2->getPhysicalAddress(513 * 1024 + 2);*/
+	auto proc1 = sys->createProcess();
+	auto proc2 = sys->createProcess();
+	auto proc3 = sys->createProcess();
+	auto proc4 = sys->createProcess();
+	auto proc5 = sys->createProcess();
+	auto result = proc1->loadSegment(0, 100, READ_WRITE, initial);
+	RQE(result, OK);
+	result = proc2->loadSegment(0, 100, READ_WRITE, initial);
+	RQE(result, OK);
+	result = proc3->loadSegment(0, 100, READ_WRITE, initial);
+	RQE(result, OK);
+	result = proc4->loadSegment(0, 100, READ_WRITE, initial);
+	RQE(result, OK);
+	result = proc5->loadSegment(0, 100, READ_WRITE, initial);
+	RQE(result, OK);
+	auto t1 = std::thread(processBody, sys, proc1, initial, 10);
+	auto t2 = std::thread(processBody, sys, proc2, initial, 20);
+	auto t3 = std::thread(processBody, sys, proc3, initial, 30);
+	auto t4 = std::thread(processBody, sys, proc4, initial, 5);
+	auto t5 = std::thread(processBody, sys, proc5, initial, 45);
+	t1.join();
+	t2.join();
+	t3.join();
+	t4.join();
+	t5.join();
+	running = false;
+	pTask.join();
+	cout << part->ax<<'\n';
+	cout << fc << '\n';
+	cout << "ALL_OK";
 }

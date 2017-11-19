@@ -35,6 +35,8 @@ public:
 	void sacrificePage();
 	void evict(std::list<PageDescriptor*>::iterator page);
 	void loadPage(PageDescriptor& descriptor);
+	void updateWsetSize();
+	void resetReferenceBits();
 private:
 	KernelSystem *system;
 	ProcessId pid;
@@ -45,7 +47,7 @@ private:
 
 	AccessType faultAccess;
 
-	unsigned long wsetSize = 1000000;
+	unsigned long wsetSize = 10;
 
 	unsigned long accessCount = 0;
 	unsigned long faultCount = 0;

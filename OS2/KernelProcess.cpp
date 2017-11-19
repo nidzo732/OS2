@@ -2,6 +2,7 @@
 #include "KernelSystem.h"
 #include "Segment.h"
 #include<iostream>
+
 KernelProcess::KernelProcess(ProcessId pid, KernelSystem * system)
 	:pid(pid), system(system), directory(nullptr)
 {
@@ -43,6 +44,7 @@ Status KernelProcess::allocSegment(VirtualAddress startAddress, PageNum segmentS
 	}
 	Segment *newSegment = new Segment(startAddress, segmentSize);
 	segments.push_back(std::shared_ptr<Segment>(newSegment));
+	system->pagesAllocated(segmentSize);
 	return OK;
 }
 
@@ -110,6 +112,7 @@ Status KernelProcess::deleteSegment(VirtualAddress startAddress)
 				deallocPage(i);
 			}
 			auto iter = loadedPages.begin();
+			system->pagesFreed(seg.get()->size);
 			segments.remove(seg);
 			return OK;
 		}
@@ -246,7 +249,7 @@ void KernelProcess::evict(std::list<PageDescriptor*>::iterator page)
 
 void KernelProcess::loadPage(PageDescriptor& descriptor)
 {
-	if (this->loadedPages.size() == this->wsetSize)
+	if(system->beganSwapping() && this->loadedPages.size() >= this->wsetSize)
 	{
 		sacrificePage();
 	}
@@ -262,5 +265,30 @@ void KernelProcess::loadPage(PageDescriptor& descriptor)
 	}
 	descriptor.frame = system->processMemory.getFrame(page);
 	descriptor.loaded = 1;
+	descriptor.reference = 0;
 	loadedPages.push_back(&descriptor);
+}
+
+void KernelProcess::updateWsetSize()
+{
+	if (faultFrequency() < VERY_SMALL_FAULTRATE)
+	{
+		wsetSize = wsetSize / WORKING_SET_DECREMENT;
+		if (wsetSize < 5) wsetSize = MIN_WORKINGSET;
+	}
+	if (faultFrequency() > TOLERABLE_FAULTRATE)
+	{
+		wsetSize = wsetSize*WORKING_SET_INCREMENT;
+		if (wsetSize > MAX_WORKINGSET) wsetSize = MAX_WORKINGSET;
+	}
+	accessCount = 0;
+	faultCount = 0;
+}
+
+void KernelProcess::resetReferenceBits()
+{
+	for (auto page : loadedPages)
+	{
+		page->reference = 0;
+	}
 }

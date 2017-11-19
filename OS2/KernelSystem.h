@@ -27,6 +27,9 @@ public:
 	Status access(ProcessId pid, VirtualAddress address, AccessType type);
 	std::mutex& getMutex();
 	friend class KernelProcess;
+	void pagesAllocated(PageNum count);
+	void pagesFreed(PageNum count);
+	bool beganSwapping();
 private:
 	
 private:
@@ -35,6 +38,7 @@ private:
 	Swap swap;
 	ProcessId nextId = 0;
 	std::map<ProcessId, KernelProcess*> processes;
+	PageNum pagesUsed = 0;
 
 };
 

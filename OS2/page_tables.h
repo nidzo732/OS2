@@ -4,7 +4,6 @@
 struct PageDescriptor
 {
 	Frame frame;
-	Frame next;
 	AccessRight privileges : 2;
 	unsigned char dirty : 1;
 	unsigned char reference : 1;
@@ -12,6 +11,7 @@ struct PageDescriptor
 	unsigned char used : 1;
 	unsigned char swapped : 1;
 	unsigned char cow : 1;
+	unsigned long padding : 16;
 	bool validAccess(AccessType type)
 	{
 		switch (type)
