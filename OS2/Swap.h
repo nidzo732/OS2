@@ -8,7 +8,6 @@ public:
 	Swap(Partition *partition);
 	ClusterNo get();
 	void release(ClusterNo cluster);
-	std::shared_ptr<char> read(ClusterNo cluster);
 	void read(ClusterNo cluster, char *buffer);
 	void write(ClusterNo cluster, void* buffer);
 	bool clustersAvailable();

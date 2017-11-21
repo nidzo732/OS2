@@ -31,6 +31,6 @@ typedef unsigned long Frame;
 #define INITIAL_WORKINGSET 6
 #define TOLERABLE_FAULTRATE (0.05f)
 #define VERY_SMALL_FAULTRATE (0.005f)
-#define WORKING_SET_INCREMENT (1.8f)
+#define WORKING_SET_INCREMENT (1.6f) 
 #define WORKING_SET_DECREMENT (1.2f)
 #define SWAPPINES (0.8f)

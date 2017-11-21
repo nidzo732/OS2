@@ -49,7 +49,7 @@ FreePage * KernelSystem::getFreePage(bool onPagingTable, bool recurse)
 		else if (recurse)
 		{
 			attemptSwapping();
-			page = getFreePage(false);
+			page = getFreePage(false, false);
 		}
 		return page;
 	}
@@ -60,10 +60,6 @@ PageTable * KernelSystem::fetchTable()
 	PageTable *pt=(PageTable*)getFreePage(true);
 	if (pt == nullptr) return nullptr;
 	memset(pt, 0, sizeof(PageTable));
-	for (int i = 0; i < TABLE_SIZE; i++)
-	{
-		//pt->descriptors[i].next=pmtMemory.getFrame(nullptr);
-	}
 	return pt;
 }
 PageDirectory * KernelSystem::fetchDirectory()
@@ -72,7 +68,7 @@ PageDirectory * KernelSystem::fetchDirectory()
 	if (pt == nullptr) return nullptr;
 	for (int i = 0; i < DIRECTORY_SIZE; i++)
 	{
-		pt->tables[i] = pmtMemory.getFrame(nullptr);
+		pt->tables[i] = nullptr;
 	}
 	return pt;
 }
@@ -98,10 +94,10 @@ void KernelSystem::attemptSwapping()
 {
 	if (!swap.clustersAvailable()) return;
 	float maxEr = -1;
-	KernelProcess* targetProcess;
+	KernelProcess* targetProcess=nullptr;
 	for (auto process : processes)
 	{
-		if (process.second->evictionRating() > maxEr)
+		if (process.second->evictionRating() > maxEr && process.second->loadedPages.size()>0)
 		{
 			maxEr = process.second->evictionRating();
 			targetProcess = process.second;
@@ -144,6 +140,23 @@ void KernelSystem::pagesFreed(PageNum count)
 bool KernelSystem::beganSwapping()
 {
 	return pagesUsed > SWAPPINES*processMemory.size();
+}
+
+ProcessId KernelSystem::getNextPid()
+{
+	return nextId++;
+}
+
+Process * KernelSystem::clone(ProcessId pid)
+{
+	if (processes.count(pid) == 0) return nullptr;
+	auto proc = processes[pid];
+	auto newProc = proc->clone();
+	if (newProc == nullptr) return nullptr;
+	Process *process = new Process(newProc->pid);
+	processes[newProc->pid] = newProc;
+	process->pProcess = newProc;
+	return process;
 }
 
 

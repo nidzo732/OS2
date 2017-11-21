@@ -21,9 +21,6 @@
     <ClCompile Include="KernelSystem.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="part.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
     <ClCompile Include="PhysicalMemory.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>

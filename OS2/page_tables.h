@@ -3,15 +3,15 @@
 
 struct PageDescriptor
 {
-	Frame frame;
+	Frame frame : 32;
 	AccessRight privileges : 2;
-	unsigned char dirty : 1;
 	unsigned char reference : 1;
 	unsigned char loaded : 1;
 	unsigned char used : 1;
 	unsigned char swapped : 1;
 	unsigned char cow : 1;
-	unsigned long padding : 16;
+	unsigned char shr : 1;
+	unsigned long cowCount : 32;
 	bool validAccess(AccessType type)
 	{
 		switch (type)
@@ -43,8 +43,8 @@ struct PageTable
 };
 struct PageDirectory
 {
-	Frame tables[DIRECTORY_SIZE];
-	Frame& operator[](VirtualAddress addr)
+	PageTable* tables[DIRECTORY_SIZE];
+	PageTable*& operator[](VirtualAddress addr)
 	{
 		return tables[(addr&TABLE_MASK) >> (OFFSET_BITS + PAGE_TABLE_BITS)];
 	}

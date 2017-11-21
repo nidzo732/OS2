@@ -30,6 +30,8 @@ public:
 	void pagesAllocated(PageNum count);
 	void pagesFreed(PageNum count);
 	bool beganSwapping();
+	ProcessId getNextPid();
+	Process* clone(ProcessId pid);
 private:
 	
 private:

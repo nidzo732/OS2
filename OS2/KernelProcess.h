@@ -8,6 +8,20 @@ class KernelSystem;
 class Segment;
 class KernelProcess
 {
+	struct ClockListItem
+	{
+		PageDescriptor *descriptor;
+		PageNum page;
+		ClockListItem(PageDescriptor* descriptor, PageNum page)
+			:descriptor(descriptor), page(page)
+		{
+
+		}
+		bool operator==(const ClockListItem& other) const
+		{
+			return page == other.page;
+		}
+	};
 public:
 	KernelProcess(ProcessId pid, KernelSystem *system);
 	KernelProcess(const KernelProcess &p) = delete;
@@ -32,18 +46,25 @@ public:
 	friend class Process;
 	int allocPage(PageNum page, AccessRight flags);
 	void deallocPage(PageNum page);
+	void cowAnnounceReferenceChange(PageNum page, unsigned long reference);
+	void cowNotifyReferenceChange(PageNum page, unsigned long reference);
+	void notifyCowChange(PageNum page, int loaded, int swapped, Frame frame);
+	void announceCowChange(PageNum pg, Frame frame, int loaded, int swapped);
 	void sacrificePage();
-	void evict(std::list<PageDescriptor*>::iterator page);
-	void loadPage(PageDescriptor& descriptor);
+	void evict(std::list<ClockListItem>::iterator page, PageNum pg);
+	void loadPage(PageDescriptor& descriptor, PageNum pg);
 	void updateWsetSize();
 	void resetReferenceBits();
+	bool clonePage(PageNum page, KernelProcess *target);
+	Segment* getSegment(PageNum page);
+	KernelProcess *clone();
 private:
 	KernelSystem *system;
 	ProcessId pid;
 	PageDirectory *directory;
 	std::list<std::shared_ptr<Segment>> segments;
-	std::list<PageDescriptor*> loadedPages;
-	std::list<PageDescriptor*>::iterator clockHand;
+	std::list<ClockListItem> loadedPages;
+	std::list<ClockListItem>::iterator clockHand;
 
 	AccessType faultAccess;
 

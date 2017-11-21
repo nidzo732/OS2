@@ -23,6 +23,12 @@ bool Segment::overlap(VirtualAddress start, PageNum size)
 	return (start >= this->start&&start < ourEnd) || (end >= this->start&&end < ourEnd);
 }
 
+bool Segment::contains(PageNum page)
+{
+	auto pageLo = start / PAGE_SIZE;
+	return page >= pageLo && page < pageLo + size;
+}
+
 Segment::~Segment()
 {
 }

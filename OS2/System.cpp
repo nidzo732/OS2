@@ -29,3 +29,9 @@ Status System::access(ProcessId pid, VirtualAddress address, AccessType type)
 	std::lock_guard<std::mutex> _guard(pSystem->getMutex());
 	return pSystem->access(pid, address, type);
 }
+
+Process * System::clone(ProcessId pid)
+{
+	std::lock_guard<std::mutex> _guard(pSystem->getMutex());
+	return pSystem->clone(pid);
+}

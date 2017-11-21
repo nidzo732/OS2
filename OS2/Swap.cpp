@@ -27,14 +27,6 @@ void Swap::release(ClusterNo cluster)
 	used--;
 }
 
-std::shared_ptr<char> Swap::read(ClusterNo cluster)
-{
-	std::shared_ptr<char> buffer = std::shared_ptr<char>(new char[ClusterSize]);
-	int response = partition->readCluster(cluster, buffer.get());
-	if (response != 1) throw std::exception("Read failure");
-	return buffer;
-}
-
 void Swap::read(ClusterNo cluster, char * buffer)
 {
 	int response = partition->readCluster(cluster, buffer);

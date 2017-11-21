@@ -14,7 +14,7 @@
 #include "System.h"
 using namespace std;
 
-#ifdef _DEBUG
+#ifdef _DEBUG___2
 int assertions()
 {
 	srand(time(NULL));
@@ -70,76 +70,13 @@ std::mutex mtx;
 #define RQD(r,t) if((r)==(t)){std::cout<<(r)<<' '<<(t)<<' '<<__LINE__<<'\n';exit(1);}
 #define RQE(r,t) assert((r)==(t));if((r)!=(t)){std::cout<<(r)<<' '<<(t)<<' '<<__LINE__<<'\n';exit(1);}
 
-/*void allocat(Process *proc, char* initial, System *sys)
-{
-	auto result = proc->loadSegment(511 * 1024, 100, READ_WRITE, initial);
-	RQE(result, OK);
-}
-void deallocat(Process *proc, char* initial, System *sys)
-{
-	auto result = proc->deleteSegment(511 * 1024);
-	RQE(result, OK);
-}
-int fc = 0;
-void runProcess(Process *proc, char* initial, System *sys)
-{
-	for (int i = 0; i < 10000; i++)
-	{
-		mtx.lock();
-		VirtualAddress addr = 511 * 1024 + (rand() % 100)*1024;
-		auto result = sys->access(proc->getProcessId(), addr, READ);
-		RQD(result, TRAP)
-		if (result == PAGE_FAULT)
-		{
-			result = proc->pageFault(addr);
-			fc++;
-			RQE(result, OK);
-		}
-		result = sys->access(proc->getProcessId(), addr, READ);
-		if (result != OK) std::cout << i << '\n';
-		RQE(result, OK);
-		void *stored = proc->getPhysicalAddress(addr);
-		RQD(stored, (void*)nullptr);
-		char *storedc = (char*)stored;
-		RQE(*storedc, initial[addr - 511 * 1024]);
-		//cout << storedc << '\n';
-		//system("cls");
-		mtx.unlock();
-	}
-	cout << "\n\nALL OK\n\n";
-}*/
-unsigned long long fc = 0;
-void processBody(System *sys, Process *proc, char *initial, int workset)
-{
-	int *w = new int[workset];
-	for (int i = 0; i < 10000; i++)
-	{
-		for (int j = 0; j < workset; j++) w[j] = rand() % 100;
-		for (int j = 0; j<10000; j++)
-		{
-			mtx.lock();
-			VirtualAddress addr = w[rand() % workset] * 1024 + rand() % 1024;
-			auto result = sys->access(proc->getProcessId(), addr, READ);
-			RQD(result, TRAP);
-			if (result == PAGE_FAULT)
-			{
-				fc++;
-				result = proc->pageFault(addr);
-				RQE(result, OK);
-			}
-			result = sys->access(proc->getProcessId(), addr, READ);
-			if (result != OK) std::cout << i << '\n';
-			RQE(result, OK);
-			void *stored = proc->getPhysicalAddress(addr);
-			RQD(stored, (void*)nullptr);
-			char *storedc = (char*)stored;
-			RQE(*storedc, initial[addr]);
-			mtx.unlock();
-		}
-	}
-	std::cout << "\nPROCDONE "<<workset<<"\n";
-	delete[] w;
-}
+#define MEMORY_CAPACITY_P 1000
+#define MEMORY_CAPACITY (MEMORY_CAPACITY_P*1024)
+#define PROC_COUNT 10
+#define ITER1 1000
+#define ITER2 1000
+#define LOOPS 1
+
 volatile bool running = true;
 int p = 0;
 void periodical(System *sys)
@@ -150,47 +87,115 @@ void periodical(System *sys)
 		p++;
 	}
 }
+unsigned long long fc = 0;
+void processBody(System *sys, Process *proc, char *initial, int workset)
+{
+	int *w = new int[workset];
+	for (int i = 0; i < ITER1; i++)
+	{
+		for (int j = 0; j < workset; j++) w[j] = rand() % MEMORY_CAPACITY_P;
+		for (int j = 0; j<ITER2; j++)
+		{
+			{
+				mtx.lock();
+				VirtualAddress addr = w[rand() % workset] * 1024 + rand() % 1024;
+				auto result = sys->access(proc->getProcessId(), addr, READ);
+				RQD(result, TRAP);
+				if (result == PAGE_FAULT)
+				{
+					fc++;
+					result = proc->pageFault(addr);
+					RQE(result, OK);
+				}
+				result = sys->access(proc->getProcessId(), addr, READ);
+				if (result != OK) std::cout << i << '\n';
+				RQE(result, OK);
+				void *stored = proc->getPhysicalAddress(addr);
+				RQD(stored, (void*)nullptr);
+				char *storedc = (char*)stored;
+				RQE(*storedc, initial[addr]);
+				mtx.unlock();
+			}
+			{
+				mtx.lock();
+				VirtualAddress addr = w[rand() % workset] * 1024 + rand() % 1024;
+				auto result = sys->access(proc->getProcessId(), addr, WRITE);
+				RQD(result, TRAP);
+				if (result == PAGE_FAULT)
+				{
+					fc++;
+					result = proc->pageFault(addr);
+					RQE(result, OK);
+				}
+				result = sys->access(proc->getProcessId(), addr, WRITE);
+				if (result != OK) std::cout << i << '\n';
+				RQE(result, OK);
+				void *stored = proc->getPhysicalAddress(addr);
+				RQD(stored, (void*)nullptr);
+				char *storedc = (char*)stored;
+				char gen = rand() % 128;
+				initial[addr] = gen;
+				*storedc = gen;
+				mtx.unlock();
+			}
+		}
+	}
+	std::cout << "\nPROCDONE "<<workset<<"\n";
+	delete[] w;
+}
+
 int main()
 {
-	char* pmtSpace = new char[1024*10000];
-	char* vmSpace = new char[1024*10000];
-	auto part = new Partition("pera");
-	auto sys = new System(vmSpace, 100, pmtSpace, 10000, part);
-	auto pTask = std::thread(periodical, sys);
-	char *initial = new char[102400];
-	for (int i = 0; i < 102400; i++)
+	//cout << sizeof(PageDescriptor);
+	//return 0;
+	char **initial = new char*[PROC_COUNT];
+	char *phymem = new char[MEMORY_CAPACITY];
+	char *pmtmem = new char[102400000];
+	initial[0] = new char[MEMORY_CAPACITY];
+	for (int i = 0; i < MEMORY_CAPACITY; i++)
 	{
-		initial[i] = rand() % 128;
+		initial[0][i] = rand() % 128;
 	}
-	initial[10239] = '\0';
-	auto proc1 = sys->createProcess();
-	auto proc2 = sys->createProcess();
-	auto proc3 = sys->createProcess();
-	auto proc4 = sys->createProcess();
-	auto proc5 = sys->createProcess();
-	auto result = proc1->loadSegment(0, 100, READ_WRITE, initial);
-	RQE(result, OK);
-	result = proc2->loadSegment(0, 100, READ_WRITE, initial);
-	RQE(result, OK);
-	result = proc3->loadSegment(0, 100, READ_WRITE, initial);
-	RQE(result, OK);
-	result = proc4->loadSegment(0, 100, READ_WRITE, initial);
-	RQE(result, OK);
-	result = proc5->loadSegment(0, 100, READ_WRITE, initial);
-	RQE(result, OK);
-	auto t1 = std::thread(processBody, sys, proc1, initial, 10);
-	auto t2 = std::thread(processBody, sys, proc2, initial, 20);
-	auto t3 = std::thread(processBody, sys, proc3, initial, 30);
-	auto t4 = std::thread(processBody, sys, proc4, initial, 5);
-	auto t5 = std::thread(processBody, sys, proc5, initial, 45);
-	t1.join();
-	t2.join();
-	t3.join();
-	t4.join();
-	t5.join();
+	for (int j = 1; j < PROC_COUNT; j++)
+	{
+		initial[j] = new char[MEMORY_CAPACITY];
+		memcpy(initial[j], initial[0], MEMORY_CAPACITY);
+	}
+	auto part = new Partition("p1.ini");
+	System *sys = new System(phymem, MEMORY_CAPACITY_P, pmtmem, 100000, part);
+	auto pThrad = std::thread(periodical, sys);
+	std::list<Process*> processes;
+	for (int z = 0; z < LOOPS; z++)
+	{
+		auto proc0 = sys->createProcess();
+		proc0->loadSegment(0, MEMORY_CAPACITY_P, READ_WRITE, initial[0]);
+		processes.push_back(proc0);
+		for (int i = 1; i < PROC_COUNT; i++)
+		{
+			/*auto proc = sys->createProcess();
+			auto status = proc->loadSegment(0, MEMORY_CAPACITY_P, READ_WRITE, initial[i]);*/
+			auto proc = sys->clone(proc0->getProcessId());
+			assert(proc != nullptr);
+			processes.push_back(proc);
+		}
+		std::list<std::thread*> threads;
+		auto iter = processes.begin();
+		for (int i = 0; i < PROC_COUNT; i++, iter++)
+		{
+			threads.push_back(new std::thread(processBody, sys, *iter, initial[i], 20 - rand() % 10));
+		}
+		for (auto proc : threads)
+		{
+			proc->join();
+		}
+		threads.clear();
+		for (auto proc : processes)
+		{
+			proc->deleteSegment(0);
+		}
+		processes.clear();
+	}
 	running = false;
-	pTask.join();
-	cout << part->ax<<'\n';
-	cout << fc << '\n';
-	cout << "ALL_OK";
+	pThrad.join();
+	std::cout << "\n\nFAULTS: " << fc << "(" << ((double)fc) / ITER1 / ITER2 *100.0 / LOOPS/ PROC_COUNT << "%)";
 }
