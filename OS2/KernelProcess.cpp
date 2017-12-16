@@ -1,6 +1,8 @@
 #include "KernelProcess.h"
 #include "KernelSystem.h"
 #include "Segment.h"
+#include "Process.h"
+
 #include<iostream>
 
 KernelProcess::KernelProcess(ProcessId pid, KernelSystem * system)
@@ -11,13 +13,29 @@ KernelProcess::KernelProcess(ProcessId pid, KernelSystem * system)
 
 KernelProcess::~KernelProcess()
 {
+	auto iter = segments.begin();
+	while (iter != segments.end())
+	{
+		auto segment = *iter;
+		iter++;
+		if (segment.segment->shared())
+		{
+			disconnectSharedSegment(segment.segment->name.c_str());
+		}
+		else
+		{
+			deleteSegment(segment.start);
+		}
+	}
+	system->freePage((FreePage*)directory, true);
+	system->processes.erase(this->pid);
 }
 
 ProcessId KernelProcess::getProcessId() const
 {
 	return pid;
 }
-Status KernelProcess::allocSegment(VirtualAddress startAddress, PageNum segmentSize, AccessRight flags)
+Status KernelProcess::allocSegment(VirtualAddress startAddress, PageNum segmentSize, AccessRight flags, int shared)
 {
 	if (startAddress & ((1 << OFFSET_BITS) - 1))
 	{
@@ -25,7 +43,7 @@ Status KernelProcess::allocSegment(VirtualAddress startAddress, PageNum segmentS
 	}
 	for (auto seg : segments)
 	{
-		if (seg.get()->overlap(startAddress, segmentSize))
+		if (seg.segment->overlap(startAddress, segmentSize, seg.start))
 		{
 			return TRAP;
 		}
@@ -33,7 +51,7 @@ Status KernelProcess::allocSegment(VirtualAddress startAddress, PageNum segmentS
 	VirtualAddress startPage = startAddress >> OFFSET_BITS;
 	for (unsigned long i = startPage; i < startPage + segmentSize; i++)
 	{
-		if (!allocPage(i, flags))
+		if (!allocPage(i, flags, shared))
 		{
 			for (unsigned long j = startPage; j < i; j++)
 			{
@@ -42,16 +60,18 @@ Status KernelProcess::allocSegment(VirtualAddress startAddress, PageNum segmentS
 			return TRAP;
 		}
 	}
-	Segment *newSegment = new Segment(startAddress, segmentSize);
-	newSegment->users.push_back(this);
-	segments.push_back(std::shared_ptr<Segment>(newSegment));
-	system->pagesAllocated(segmentSize);
+	if (!shared)
+	{
+		std::shared_ptr<Segment> newSegment = std::make_shared<Segment>(segmentSize);
+		newSegment->users.push_back(Segment::SegmentUser(this, startAddress));
+		segments.push_back(SegmentReference(std::shared_ptr<Segment>(newSegment), startAddress));
+		system->pagesAllocated(segmentSize);
+	}
 	return OK;
 }
 
 Status KernelProcess::createSegment(VirtualAddress startAddress, PageNum segmentSize, AccessRight flags)
 {
-
 	return allocSegment(startAddress, segmentSize, flags);
 }
 void KernelProcess::logResult(Status status, AccessType type)
@@ -101,21 +121,20 @@ Status KernelProcess::loadSegment(VirtualAddress startAddress, PageNum segmentSi
 	return OK;
 }
 
-Status KernelProcess::deleteSegment(VirtualAddress startAddress)
+Status KernelProcess::deleteSegment(VirtualAddress startAddress, bool ignoreShared, bool allowShare)
 {
 	for (auto seg : segments)
 	{
-		if (seg.get()->start == startAddress)
+		if (seg.start == startAddress)
 		{
+			if (seg.segment->shared() && !allowShare) return TRAP;
 			VirtualAddress startPage = startAddress >> OFFSET_BITS;
-			for (unsigned long i = startPage; i < startPage + seg.get()->size; i++)
+			for (unsigned long i = startPage; i < startPage + seg.segment->size; i++)
 			{
-				deallocPage(i);
+				deallocPage(i, ignoreShared);
 			}
-			auto iter = loadedPages.begin();
-			system->pagesFreed(seg.get()->size);
 			segments.remove(seg);
-			seg.get()->users.remove(this);
+			seg.segment->users.remove(Segment::SegmentUser(this));
 			return OK;
 		}
 	}
@@ -126,17 +145,18 @@ Status KernelProcess::handlePageFault(VirtualAddress address)
 {
 	if (this->directory == nullptr) return TRAP;
 	PageTable *pTable = (*this->directory)[address];
-	if (pTable == nullptr) return (Status)44;// TRAP;
+	if (pTable == nullptr) return TRAP;
 	PageDescriptor& descriptor = (*pTable)[address];
 	if (!(descriptor.used)) return TRAP;
-	if (!descriptor.validAccess(faultAccess)) return (Status)45;// TRAP;
+	if (!descriptor.validAccess(faultAccess)) return TRAP;
 	if (descriptor.cow && (faultAccess == AccessType::READ_WRITE || faultAccess == AccessType::WRITE))
 	{
 		auto newPage = system->getFreePage();
 		if (newPage == nullptr)
 		{
-			return (Status)46;
+			return TRAP;
 		}
+		system->pagesAllocated(1);
 		if (descriptor.loaded)
 		{
 			auto oldPage = getPhysicalAddress((address >> OFFSET_BITS) * 1024);
@@ -150,21 +170,32 @@ Status KernelProcess::handlePageFault(VirtualAddress address)
 			descriptor.swapped = 0;
 		}
 		descriptor.cow = 0;
-		cowAnnounceReferenceChange(address >> OFFSET_BITS, descriptor.cowCount - 1);
+		descriptor.cowSeq++;
+		cowAnnounceReferenceChange(address >> OFFSET_BITS, descriptor.cowCount - 1, descriptor.cowSeq-1);
 		descriptor.cowCount = 0;
+		if (descriptor.loaded)
+		{
+			if (clockHand != loadedPages.end() && clockHand->page == address >> OFFSET_BITS)
+			{
+				clockHand = loadedPages.end();
+			}
+			loadedPages.remove(ClockListItem(nullptr, address >> OFFSET_BITS));
+			loadedPages.push_back(ClockListItem(&descriptor, address >> OFFSET_BITS));
+		}
+		else
+		{
+			loadedPages.push_back(ClockListItem(&descriptor, address >> OFFSET_BITS));
+		}
 		descriptor.loaded = 1;
-		loadedPages.remove(ClockListItem(nullptr, address>>OFFSET_BITS));
-		loadedPages.push_back(ClockListItem(&descriptor, address>>OFFSET_BITS));
-		clockHand = loadedPages.begin();
 	}
-	else if(!descriptor.loaded)
+	else if (!descriptor.loaded)
 	{
 		loadPage(descriptor, address >> OFFSET_BITS);
 	}
 	if (descriptor.loaded) return OK;
 	else
 	{
-		return (Status)47;
+		return TRAP;
 	}
 
 }
@@ -201,11 +232,12 @@ float KernelProcess::evictionRating()
 	return rating1*rating2*rating3;
 }
 
-int KernelProcess::allocPage(PageNum page, AccessRight flags)
+int KernelProcess::allocPage(PageNum page, AccessRight flags, int shared)
 {
 	if (directory == nullptr) directory = system->fetchDirectory();
 	if (directory == nullptr) return 0;
 	auto table = page >> PAGE_TABLE_BITS;
+	if (table >= 256) return 0;
 	PageTable *pTable = directory->tables[table];
 	if (pTable == nullptr)
 	{
@@ -218,10 +250,11 @@ int KernelProcess::allocPage(PageNum page, AccessRight flags)
 	pTable->descriptors[page].used = 1;
 	pTable->descriptors[page].loaded = 0;
 	pTable->descriptors[page].swapped = 0;
+	pTable->descriptors[page].shr = shared;
 	return 1;
 }
 
-void KernelProcess::deallocPage(PageNum page)
+void KernelProcess::deallocPage(PageNum page, bool ignoreShare)
 {
 	if (directory == nullptr) throw std::exception();
 	PageNum originalPage = page;
@@ -230,13 +263,16 @@ void KernelProcess::deallocPage(PageNum page)
 	if (pTable == nullptr) throw std::exception();
 	page = page&((1 << PAGE_TABLE_BITS) - 1);
 	if (!pTable->descriptors[page].used) throw std::exception();
-	if (pTable->descriptors[page].swapped)
+	if (pTable->descriptors[page].swapped && !pTable->descriptors[page].cow && (!pTable->descriptors[page].shr || ignoreShare))
 	{
 		system->swap.release(pTable->descriptors[page].frame);
 	}
 	if (pTable->descriptors[page].loaded)
 	{
-		system->freePage((FreePage*)system->processMemory.getPointer(pTable->descriptors[page].frame));
+		if (!pTable->descriptors[page].cow && (!pTable->descriptors[page].shr || ignoreShare))
+		{
+			system->freePage((FreePage*)system->processMemory.getPointer(pTable->descriptors[page].frame));
+		}
 		if (clockHand != loadedPages.end())
 		{
 			if ((*clockHand).page == originalPage)
@@ -248,7 +284,11 @@ void KernelProcess::deallocPage(PageNum page)
 	}
 	if (pTable->descriptors[page].cow)
 	{
-		cowAnnounceReferenceChange(originalPage, pTable->descriptors[page].cowCount - 1);
+		cowAnnounceReferenceChange(originalPage, pTable->descriptors[page].cowCount - 1, pTable->descriptors[page].cowSeq);
+	}
+	else
+	{
+		system->pagesFreed(1);
 	}
 	pTable->descriptors[page].used = 0;
 	if (pTable->empty())
@@ -258,17 +298,17 @@ void KernelProcess::deallocPage(PageNum page)
 	}
 }
 
-void KernelProcess::cowAnnounceReferenceChange(PageNum page, unsigned long reference)
+void KernelProcess::cowAnnounceReferenceChange(PageNum page, unsigned long reference, int seq)
 {
 	auto segment = getSegment(page);
-	if (segment == nullptr) return;
-	for (auto user : segment->users)
+	if (segment.segment == nullptr) return;
+	for (auto user : segment.segment->users)
 	{
-		user->cowNotifyReferenceChange(page, reference);
+		user.user->cowNotifyReferenceChange(page, reference, seq);
 	}
 }
 
-void KernelProcess::cowNotifyReferenceChange(PageNum page, unsigned long reference)
+void KernelProcess::cowNotifyReferenceChange(PageNum page, unsigned long reference, int seq)
 {
 	if (directory == nullptr) throw std::exception();
 	auto table = page >> PAGE_TABLE_BITS;
@@ -277,14 +317,16 @@ void KernelProcess::cowNotifyReferenceChange(PageNum page, unsigned long referen
 	page = page&((1 << PAGE_TABLE_BITS) - 1);
 	if (!pTable->descriptors[page].used) throw std::exception();
 	if (!pTable->descriptors[page].cow) return;
+	if (pTable->descriptors[page].cowSeq != seq) return;
 	pTable->descriptors[page].cowCount = reference;
 	if (pTable->descriptors[page].cowCount == 0)
 	{
 		pTable->descriptors[page].cow = 0;
+		pTable->descriptors[page].cowSeq++;
 	}
 }
 
-void KernelProcess::notifyCowChange(PageNum page, int loaded, int swapped, Frame frame)
+void KernelProcess::notifySharedChange(PageNum page, int loaded, int swapped, Frame frame, int seq)
 {
 	auto originalPage = page;
 	if (directory == nullptr) throw std::exception();
@@ -293,7 +335,8 @@ void KernelProcess::notifyCowChange(PageNum page, int loaded, int swapped, Frame
 	if (pTable == nullptr) throw std::exception();
 	page = page&((1 << PAGE_TABLE_BITS) - 1);
 	if (!pTable->descriptors[page].used) throw std::exception();
-	if (!pTable->descriptors[page].cow) return;
+	if (!pTable->descriptors[page].cow && !pTable->descriptors[page].shr) return;
+	if (seq != -1 && pTable->descriptors[page].cowSeq != seq) return;
 	if (pTable->descriptors[page].loaded && !loaded)
 	{
 		loadedPages.remove(ClockListItem(nullptr, originalPage));
@@ -310,13 +353,14 @@ void KernelProcess::notifyCowChange(PageNum page, int loaded, int swapped, Frame
 	pTable->descriptors[page].swapped = swapped;
 }
 
-void KernelProcess::announceCowChange(PageNum pg, Frame frame, int loaded, int swapped)
+void KernelProcess::broadcastSharedChange(PageNum pg, Frame frame, int loaded, int swapped, int seq)
 {
 	auto segment = getSegment(pg);
-	if (segment == nullptr) return;
-	for (auto user : segment->users)
+	if (segment.segment == nullptr) return;
+	auto offset = pg - (segment.start / PAGE_SIZE);
+	for (auto user : segment.segment->users)
 	{
-		user->notifyCowChange(pg, loaded, swapped, frame);
+		user.user->notifySharedChange((user.start / PAGE_SIZE) + offset, loaded, swapped, frame, seq);
 	}
 }
 
@@ -348,9 +392,11 @@ void KernelProcess::evict(std::list<ClockListItem>::iterator page, PageNum pg)
 	descriptor.swapped = 1;
 	system->freePage(targetPage);
 	loadedPages.erase(page);
-	if (descriptor.cow)
+	if (descriptor.cow || descriptor.shr)
 	{
-		announceCowChange(pg, swapBlock, 0, 1);
+		int seq = -1;
+		if (descriptor.cow) seq = descriptor.cowSeq;
+		broadcastSharedChange(pg, swapBlock, 0, 1, seq);
 	}
 }
 
@@ -376,9 +422,11 @@ void KernelProcess::loadPage(PageDescriptor& descriptor, PageNum pg)
 	descriptor.frame = system->processMemory.getFrame(page);
 	descriptor.loaded = 1;
 	descriptor.reference = 0;
-	if (descriptor.cow)
+	if (descriptor.cow || descriptor.shr)
 	{
-		announceCowChange(pg, descriptor.frame, descriptor.loaded, 0);
+		int seq = -1;
+		if (descriptor.cow) seq = descriptor.cowSeq;
+		broadcastSharedChange(pg, descriptor.frame, descriptor.loaded, 0, seq);
 	}
 	loadedPages.push_back(ClockListItem(&descriptor, pg));
 }
@@ -407,55 +455,63 @@ void KernelProcess::resetReferenceBits()
 	}
 }
 
-bool KernelProcess::clonePage(PageNum page, KernelProcess * target)
+bool KernelProcess::clonePage(PageNum pageFrom, PageNum pageTo, KernelProcess * target)
 {
-	VirtualAddress address = page << OFFSET_BITS;
-	PageTable *pTable = (*this->directory)[address];
+	VirtualAddress addressFrom = pageFrom << OFFSET_BITS;
+	VirtualAddress addressTo = pageTo << OFFSET_BITS;
+	PageTable *pTable = (*this->directory)[addressFrom];
 	if (pTable == nullptr) return true;
-	PageDescriptor& descriptor = (*pTable)[address];
+	PageDescriptor& descriptor = (*pTable)[addressFrom];
 	if (target->directory == nullptr) target->directory = system->fetchDirectory();
 	if (target->directory == nullptr) return false;
-	if ((*target->directory)[address] == nullptr)
+	if ((*target->directory)[addressTo] == nullptr)
 	{
 		PageTable *table = system->fetchTable();
-		if (table == nullptr) return TRAP;
-		(*target->directory)[address] = table;
+		if (table == nullptr) return false;
+		(*target->directory)[addressTo] = table;
 	}
-	PageTable *newTable = (*target->directory)[address];
-	PageDescriptor& newDescriptor = (*newTable)[address];
+	PageTable *newTable = (*target->directory)[addressTo];
+	PageDescriptor& newDescriptor = (*newTable)[addressTo];
 	if (descriptor.used)
 	{
 		newDescriptor = descriptor;
 		if (newDescriptor.cow)
 		{
 			newDescriptor.cowCount += 1;
-			cowAnnounceReferenceChange(page, newDescriptor.cowCount);
+			cowAnnounceReferenceChange(pageFrom, newDescriptor.cowCount, newDescriptor.cowSeq);
 		}
 		else
 		{
-			newDescriptor.cow = 1;
-			descriptor.cow = 1;
-			descriptor.cowCount = 1;
-			newDescriptor.cowCount = 1;
+			if (descriptor.shr)
+			{
+				newDescriptor.shr = 1;
+			}
+			else
+			{
+				newDescriptor.cow = 1;
+				descriptor.cow = 1;
+				descriptor.cowCount = 1;
+				newDescriptor.cowCount = 1;
+			}
 		}
 	}
 	if (newDescriptor.loaded)
 	{
-		target->loadedPages.push_back(ClockListItem(&newDescriptor, page));
+		target->loadedPages.push_back(ClockListItem(&newDescriptor, pageTo));
 	}
 	return true;
 }
 
-Segment * KernelProcess::getSegment(PageNum page)
+KernelProcess::SegmentReference KernelProcess::getSegment(PageNum page)
 {
 	for (auto seg : segments)
 	{
-		if (seg.get()->contains(page))
+		if (seg.segment->contains(page, seg.start))
 		{
-			return seg.get();
+			return seg;
 		}
 	}
-	return nullptr;
+	return SegmentReference(std::shared_ptr<Segment>(nullptr), 0);
 }
 
 KernelProcess * KernelProcess::clone()
@@ -463,27 +519,125 @@ KernelProcess * KernelProcess::clone()
 	KernelProcess *newOne = new KernelProcess(system->getNextPid(), system);
 	for (auto segment : segments)
 	{
-		for (PageNum i = segment.get()->start; i < segment.get()->start + segment.get()->size; i++)
+		for (PageNum i = segment.start / PAGE_SIZE; i < segment.start / PAGE_SIZE + segment.segment->size; i++)
 		{
-			if (!clonePage(i, newOne))
+			if (!clonePage(i, i, newOne))
 			{
 				newOne->segments.push_back(segment);
-				for (unsigned long j = segment.get()->start; j < i; j++)
+				for (PageNum j = segment.start / PAGE_SIZE; j < i; j++)
 				{
 					newOne->deallocPage(j);
 				}
 				for (auto prevSegment : segments)
 				{
-					if (segment.get()->start == prevSegment.get()->start) break;
-					newOne->deleteSegment(prevSegment.get()->start);
+					if (segment.start == prevSegment.start) break;
+					newOne->deleteSegment(prevSegment.start);
 				}
 				delete newOne;
 				return nullptr;
 			}
 		}
-		segment.get()->users.push_back(newOne);
+		segment.segment->users.push_back(Segment::SegmentUser(newOne, segment.start));
 		newOne->segments.push_back(segment);
 		newOne->clockHand = newOne->loadedPages.end();
 	}
 	return newOne;
+}
+
+Status KernelProcess::createSharedSegment(VirtualAddress startAddress, PageNum segmentSize, const char * name, AccessRight flags, bool createDummy)
+{
+	for (auto segment : system->sharedSegments)
+	{
+		if (segment->operator==(name))
+		{
+			if (segment->size != segmentSize) return TRAP;
+		}
+	}
+	auto result = allocSegment(startAddress, segmentSize, flags, 1);
+	if (result != OK) return result;
+	bool alreadyExists = false;
+	for (auto segment : system->sharedSegments)
+	{
+		if (segment->operator==(name))
+		{
+			alreadyExists = true;
+			if (segment->size < segmentSize) return TRAP;
+			segment->users.push_back(Segment::SegmentUser(this, startAddress));
+			segment->references++;
+			segments.push_back(SegmentReference(segment, startAddress));
+			auto firstUser = *(segment->users.begin());
+			for (PageNum i = startAddress / PAGE_SIZE; i < startAddress / PAGE_SIZE + segment->size; i++)
+			{
+				auto offset = i - startAddress / PAGE_SIZE;
+				auto srcPage = firstUser.start / PAGE_SIZE + offset;
+				firstUser.user->clonePage(srcPage, i, this);
+			}
+		}
+	}
+	if (!alreadyExists)
+	{
+		if (createDummy)
+		{
+			auto pid = system->nextId++;
+			Process *process = new Process(pid);
+			KernelProcess *kProcess = new KernelProcess(pid, system);
+			system->processes[pid] = kProcess;
+			kProcess->createSharedSegment(startAddress, segmentSize, name, flags, false);
+			return this->createSharedSegment(startAddress, segmentSize, name, flags, false);
+		}
+		else
+		{
+			std::shared_ptr<Segment> seg = std::make_shared<Segment>(segmentSize, name);
+			seg->references = 1;
+			seg->users.push_back(Segment::SegmentUser(this, startAddress));
+			system->sharedSegments.push_back(std::shared_ptr<Segment>(seg));
+			segments.push_back(SegmentReference(std::shared_ptr<Segment>(seg), startAddress));
+			seg->dummyUser = this;
+		}
+	}
+	return OK;
+}
+
+Status KernelProcess::disconnectSharedSegment(const char * name)
+{
+	std::shared_ptr<Segment> seg = nullptr;
+	VirtualAddress start = 0;
+	for (auto segment : segments)
+	{
+		if (segment.segment->operator==(name))
+		{
+			seg = std::shared_ptr<Segment>(segment.segment);
+			start = segment.start;
+			break;
+		}
+	}
+	if (seg == nullptr) return TRAP;
+	auto status = deleteSegment(start, seg->references == 1, true);
+	if (status != OK) return status;
+	seg->references--;
+	if (seg->references == 0)
+	{
+		system->sharedSegments.remove(seg);
+	}
+	return OK;
+}
+
+Status KernelProcess::deleteSharedSegment(const char * name)
+{
+	std::shared_ptr<Segment> seg = nullptr;
+	for (auto segment : segments)
+	{
+		if (segment.segment->operator==(name))
+		{
+			seg = segment.segment;
+		}
+	}
+	if (seg == nullptr) return TRAP;
+	for (auto iter = seg->users.begin(); iter != seg->users.end();)
+	{
+		auto oldUser = iter;
+		iter++;
+		oldUser->user->disconnectSharedSegment(name);
+	}
+	return OK;
 }

@@ -7,8 +7,10 @@
 #include "part.h"
 #include "PhysicalMemory.h"
 #include "Swap.h"
+
 class Process;
 class KernelProcess;
+class Segment;
 
 class KernelSystem
 {
@@ -40,6 +42,7 @@ private:
 	Swap swap;
 	ProcessId nextId = 0;
 	std::map<ProcessId, KernelProcess*> processes;
+	std::list<std::shared_ptr<Segment>> sharedSegments;
 	PageNum pagesUsed = 0;
 
 };

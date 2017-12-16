@@ -9,6 +9,8 @@ Process::Process(ProcessId pid)
 
 Process::~Process()
 {
+	std::lock_guard<std::mutex> _guard(pProcess->system->getMutex());
+	delete this->pProcess;
 }
 
 ProcessId Process::getProcessId() const
@@ -45,4 +47,28 @@ PhysicalAddress Process::getPhysicalAddress(VirtualAddress address)
 {
 	std::lock_guard<std::mutex> _guard(pProcess->system->getMutex());
 	return pProcess->getPhysicalAddress(address);
+}
+
+Process * Process::clone(ProcessId pid)
+{
+	std::lock_guard<std::mutex> _guard(pProcess->system->getMutex());
+	return pProcess->system->clone(pid);
+}
+
+Status Process::createSharedSegment(VirtualAddress startAddress, PageNum segmentSize, const char * name, AccessRight flags)
+{
+	std::lock_guard<std::mutex> _guard(pProcess->system->getMutex());
+	return pProcess->createSharedSegment(startAddress, segmentSize, name, flags);
+}
+
+Status Process::disconnectSharedSegment(const char * name)
+{
+	std::lock_guard<std::mutex> _guard(pProcess->system->getMutex());
+	return pProcess->disconnectSharedSegment(name);
+}
+
+Status Process::deleteSharedSegment(const char * name)
+{
+	std::lock_guard<std::mutex> _guard(pProcess->system->getMutex());
+	return pProcess->deleteSharedSegment(name);
 }
