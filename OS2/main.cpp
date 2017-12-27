@@ -53,7 +53,7 @@ int main() {
 
         std::lock_guard<std::mutex> guard(systemTest.getGlobalMutex());
 
-        std::cout << "Doing periodic job\n";
+        //std::cout << "Doing periodic job\n";
 
         std::this_thread::sleep_for(std::chrono::microseconds(PERIODIC_JOB_COST));
 
