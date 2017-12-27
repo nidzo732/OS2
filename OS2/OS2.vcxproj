@@ -147,20 +147,27 @@
     <ClCompile Include="main.cpp" />
     <ClCompile Include="PhysicalMemory.cpp" />
     <ClCompile Include="Process.cpp" />
+    <ClCompile Include="ProcessTest.cpp" />
+    <ClCompile Include="RandomNumberGenerator.cpp" />
     <ClCompile Include="Segment.cpp" />
     <ClCompile Include="Swap.cpp" />
     <ClCompile Include="System.cpp" />
+    <ClCompile Include="SystemTest.cpp" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="constants.h" />
     <ClInclude Include="KernelProcess.h" />
     <ClInclude Include="KernelSystem.h" />
     <ClInclude Include="page_tables.h" />
     <ClInclude Include="part.h" />
     <ClInclude Include="PhysicalMemory.h" />
     <ClInclude Include="Process.h" />
+    <ClInclude Include="ProcessTest.h" />
+    <ClInclude Include="RandomNumberGenerator.h" />
     <ClInclude Include="Segment.h" />
     <ClInclude Include="Swap.h" />
     <ClInclude Include="System.h" />
+    <ClInclude Include="SystemTest.h" />
     <ClInclude Include="vm_declarations.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />

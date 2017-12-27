@@ -1,7 +1,7 @@
 #pragma once
 #include<mutex>
 #include<list>
-#include<map>
+#include<unordered_map>
 #include "vm_declarations.h"
 #include "page_tables.h"
 #include "part.h"
@@ -33,7 +33,6 @@ public:
 	void pagesFreed(PageNum count);
 	bool beganSwapping();
 	ProcessId getNextPid();
-	Process* clone(ProcessId pid);
 private:
 	
 private:
@@ -41,9 +40,8 @@ private:
 	PhysicalMemory pmtMemory;
 	Swap swap;
 	ProcessId nextId = 0;
-	std::map<ProcessId, KernelProcess*> processes;
-	std::list<std::shared_ptr<Segment>> sharedSegments;
+	std::vector<KernelProcess*> processes;
 	PageNum pagesUsed = 0;
-
+	unsigned int pdGelta = 0;
 };
 

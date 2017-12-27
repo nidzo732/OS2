@@ -1,19 +1,16 @@
 #pragma once
 #include "vm_declarations.h"
+#include "constants.h"
+#include "constants.h"
 
 struct PageDescriptor
 {
-	Frame frame : 32;
-	unsigned long block : 32;
-	unsigned long cowCount : 12;
-	unsigned long cowSeq : 12;
-	AccessRight privileges : 2;
+	Frame frame : 22;
+	unsigned long privileges : 2;
 	unsigned char reference : 1;
 	unsigned char loaded : 1;
 	unsigned char used : 1;
 	unsigned char swapped : 1;
-	unsigned char cow : 1;
-	unsigned char shr : 1;
 	bool validAccess(AccessType type)
 	{
 		switch (type)
@@ -45,10 +42,16 @@ struct PageTable
 };
 struct PageDirectory
 {
-	PageTable* tables[DIRECTORY_SIZE];
+	PageTable* tables[DIRECTORY_SIZE+1];
 	PageTable*& operator[](VirtualAddress addr)
 	{
-		return tables[(addr&TABLE_MASK) >> (OFFSET_BITS + PAGE_TABLE_BITS)];
+		auto index = (addr&TABLE_MASK) >> (OFFSET_BITS + PAGE_NUMBER_BITS);
+		if (index >= DIRECTORY_SIZE)
+		{
+			tables[DIRECTORY_SIZE] = nullptr;
+			return tables[DIRECTORY_SIZE];
+		}
+		return tables[index];
 	}
 };
 struct FreePage

@@ -2,6 +2,8 @@
 #include<memory>
 #include "part.h"
 #include "page_tables.h"
+#include "constants.h"
+
 class Swap
 {
 public:

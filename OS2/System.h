@@ -15,7 +15,6 @@ public:
 	Time periodicJob();
 	// Hardware job
 	Status access(ProcessId pid, VirtualAddress address, AccessType type);
-	Process* clone(ProcessId pid);
 private:
 	KernelSystem *pSystem;
 	friend class Process;

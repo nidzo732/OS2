@@ -13,8 +13,14 @@ Time KernelSystem::periodicJob()
 {
 	for (auto process : processes)
 	{
-		process.second->updateWsetSize();
-		process.second->resetReferenceBits();
+		if (process == nullptr) continue;
+		process->updateWsetSize();
+		process->resetReferenceBits();
+	}
+	while (processes.size() > 0 && processes[0] == nullptr)
+	{
+		pdGelta++;
+		processes.erase(processes.begin());
 	}
 	return 50000;
 }
@@ -22,8 +28,9 @@ Time KernelSystem::periodicJob()
 Status KernelSystem::access(ProcessId pid, VirtualAddress address, AccessType type)
 {
 	
-	if (!processes.count(pid)) return TRAP;
-	KernelProcess *proc = processes[pid];
+	if (pid-pdGelta >= processes.size()) return TRAP;
+	KernelProcess *proc = processes[pid-pdGelta];
+	if (proc == nullptr) return TRAP;
 	auto status= proc->access(address, type);
 	proc->logResult(status, type);
 	return status;
@@ -97,10 +104,11 @@ void KernelSystem::attemptSwapping()
 	KernelProcess* targetProcess=nullptr;
 	for (auto process : processes)
 	{
-		if (process.second->evictionRating() > maxEr && process.second->loadedPages.size()>0)
+		if (process == nullptr) continue;
+		if (process->evictionRating() > maxEr && process->loadedPages.size()>0)
 		{
-			maxEr = process.second->evictionRating();
-			targetProcess = process.second;
+			maxEr = process->evictionRating();
+			targetProcess = process;
 		}
 	}
 	if (targetProcess != nullptr) targetProcess->sacrificePage();
@@ -117,7 +125,7 @@ Process * KernelSystem::createProcess()
 	auto pid = nextId++;
 	Process *process = new Process(pid);
 	KernelProcess *kProcess = new KernelProcess(pid, this);
-	processes[pid]=kProcess;
+	processes.push_back(kProcess);
 	process->pProcess = kProcess;
 	return process;
 }
@@ -145,18 +153,6 @@ bool KernelSystem::beganSwapping()
 ProcessId KernelSystem::getNextPid()
 {
 	return nextId++;
-}
-
-Process * KernelSystem::clone(ProcessId pid)
-{
-	if (processes.count(pid) == 0) return nullptr;
-	auto proc = processes[pid];
-	auto newProc = proc->clone();
-	if (newProc == nullptr) return nullptr;
-	Process *process = new Process(newProc->pid);
-	processes[newProc->pid] = newProc;
-	process->pProcess = newProc;
-	return process;
 }
 
 
